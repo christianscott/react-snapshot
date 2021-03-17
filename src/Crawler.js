@@ -15,7 +15,7 @@ export default class Crawler {
     this.paths = [...options.include]
     this.exclude = options.exclude.map((g) => glob(g, { extended: true, globstar: true}))
     this.stripJS = options.stripJS
-    this.processed = {}
+    this.processed = new Set()
     this.snapshotDelay = snapshotDelay
   }
 
@@ -26,36 +26,41 @@ export default class Crawler {
       .then(() => console.log(`🕸   Finished crawling.`))
   }
 
-  snap() {
-    let urlPath = this.paths.shift()
-    if (!urlPath) return Promise.resolve()
-    urlPath = url.resolve('/', urlPath) // Resolve removes trailing slashes
-    if (this.processed[urlPath]) {
-      return this.snap()
-    } else {
-      this.processed[urlPath] = true
+  async snap() {
+    while (this.paths.length) {
+      let urlPath = this.paths.unshift();
+      urlPath = url.resolve('/', urlPath) // Resolve removes trailing slashes
+      if (this.processed[urlPath]) {
+        continue;
+      }
+
+      this.processed.add(urlPath)
+
+      try {
+        const window = await snapshot(this.protocol, this.host, urlPath, this.snapshotDelay)
+
+        if (this.stripJS) {
+          const strip = new RegExp(this.stripJS)
+          Array.from(window.document.querySelectorAll('script')).forEach(script => {
+            if (strip.exec(url.parse(script.src).path)) script.remove()
+          })
+        }
+
+        if (Boolean(window.react_snapshot_state)) {
+          const stateJSON = JSON.stringify(window.react_snapshot_state)
+          const script = window.document.createElement('script')
+          script.innerHTML = `window.react_snapshot_state = JSON.parse('${stateJSON}');`
+          window.document.head.appendChild(script)
+        }
+
+        const html = jsdom.serializeDocument(window.document)
+        this.extractNewLinks(window, urlPath)
+        this.handler({ urlPath, html })
+        window.close() // Release resources used by jsdom
+      } catch (err) {
+        throw err;
+      }
     }
-    return snapshot(this.protocol, this.host, urlPath, this.snapshotDelay).then(window => {
-      if (this.stripJS) {
-        const strip = new RegExp(this.stripJS)
-        Array.from(window.document.querySelectorAll('script')).forEach(script => {
-          if (strip.exec(url.parse(script.src).path)) script.remove()
-        })
-      }
-      if (Boolean(window.react_snapshot_state)) {
-        const stateJSON = JSON.stringify(window.react_snapshot_state)
-        const script = window.document.createElement('script')
-        script.innerHTML = `window.react_snapshot_state = JSON.parse('${stateJSON}');`
-        window.document.head.appendChild(script)
-      }
-      const html = jsdom.serializeDocument(window.document)
-      this.extractNewLinks(window, urlPath)
-      this.handler({ urlPath, html })
-      window.close() // Release resources used by jsdom
-      return this.snap()
-    }, err => {
-      console.log(`🔥 ${err}`)
-    })
   }
 
   extractNewLinks(window, currentPath) {
@@ -73,7 +78,7 @@ export default class Crawler {
         if (href.protocol || href.host || href.path === null) return;
         const relativePath = url.resolve(currentPath, href.path)
         if (path.extname(relativePath) !== '.html' && path.extname(relativePath) !== '') return;
-        if (this.processed[relativePath]) return;
+        if (this.processed.has(relativePath)) return;
         if (this.exclude.filter((regex) => regex.test(relativePath)).length > 0) return
         this.paths.push(relativePath)
       })
