@@ -30,7 +30,7 @@ export default class Crawler {
     while (this.paths.length) {
       let urlPath = this.paths.unshift();
       urlPath = url.resolve('/', urlPath) // Resolve removes trailing slashes
-      if (this.processed[urlPath]) {
+      if (this.processed.has(urlPath)) {
         continue;
       }
 

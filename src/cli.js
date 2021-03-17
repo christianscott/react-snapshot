@@ -58,7 +58,5 @@ export default () => {
       writer.write(filename, html)
     })
 
-  }).then(() => server.stop(), err => {
-    throw err
-  })
+  }).then(() => server.stop(), err => { throw err })
 }
