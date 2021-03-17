@@ -28,7 +28,7 @@ export default class Crawler {
 
   async snap() {
     while (this.paths.length) {
-      let urlPath = this.paths.unshift();
+      let urlPath = this.paths.shift();
       urlPath = url.resolve('/', urlPath) // Resolve removes trailing slashes
       if (this.processed.has(urlPath)) {
         continue;
